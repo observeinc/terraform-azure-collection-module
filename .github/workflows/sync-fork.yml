@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch all history for branches and tags
-          token: ${{ secrets.PAT }} # Use PAT for authentication
+          token: ${{ secrets.PAT_SYNC }} # Use PAT for authentication
 
       - name: Set up Git
         run: |
