@@ -19,7 +19,9 @@ jobs:
           git remote add upstream https://github.com/observeinc/terraform-azure-collection.git 
           git fetch upstream --tags
           git checkout main
-          git merge upstream/main --allow-unrelated-histories
+          git merge upstream/main --allow-unrelated-histories --no-commit || true
+          git checkout HEAD -- .github/workflows/
+          git commit --allow-empty -m "Sync with upstream"
           git push origin main
           git push origin --tags
         env:
