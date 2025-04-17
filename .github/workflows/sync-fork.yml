@@ -6,10 +6,14 @@ on:
   workflow_dispatch: # Allows manual triggering
   push:
     branches:
-      - main # Trigger on push to main
+      - main
   pull_request:
     branches:
-      - main # Trigger on pull requests to main
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   sync:
@@ -18,15 +22,15 @@ jobs:
       - name: Checkout fork
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history for branches and tags
-          token: ${{ secrets.PAT_SYNC }} # Use PAT_SYNC for authentication
+          fetch-depth: 0
+          token: ${{ secrets.PAT_SYNC }}
 
       - name: Set up Git
         run: |
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
 
-      - name: Add upstream remote
+      - name: Add upstream remote and fetch
         run: |
           git remote add upstream https://github.com/observeinc/terraform-azure-collection.git || true
           git fetch upstream --tags
@@ -34,7 +38,7 @@ jobs:
       - name: Sync main branch
         run: |
           git checkout main
-          git merge upstream/main --allow-unrelated-histories || (echo "Merge conflicts detected. Please resolve manually."; exit 1)
+          git merge upstream/main --allow-unrelated-histories --no-edit || (echo "Merge conflicts detected. Please resolve manually."; exit 1)
           git push origin main
 
       - name: Push tags
@@ -42,30 +46,44 @@ jobs:
           git push origin --tags
 
       - name: Install GitHub CLI
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gh
+        uses: cli/gh-action@v2
+        with:
+          github-token: ${{ secrets.PAT_SYNC }}
 
       - name: Sync releases
+        env:
+          GH_TOKEN: ${{ secrets.PAT_SYNC }}
         run: |
-          echo "${{ secrets.PAT_SYNC }}" | gh auth login --with-token
-          # List upstream releases
-          releases=$(gh release list --repo observeinc/terraform-azure-collection --limit 100 | awk '{print $1}')
-          for tag in $releases; do
-            # Check if release exists in fork
-            if ! gh release view $tag --repo ${{ github.repository }} > /dev/null 2>&1; then
-              # Get release details
-              title=$(gh release view $tag --repo observeinc/terraform-azure-collection --json title --jq .title)
-              notes=$(gh release view $tag --repo observeinc/terraform-azure-collection --json body --jq .body)
-              # Create release in fork
-              gh release create $tag --repo ${{ github.repository }} --title "$title" --notes "$notes"
-              # Attempt to download and upload assets if they exist
-              if gh release download $tag --repo observeinc/terraform-azure-collection --dir /tmp/release-$tag > /dev/null 2>&1; then
-                if ls /tmp/release-$tag/* >/dev/null 2>&1; then
-                  gh release upload $tag /tmp/release-$tag/* --repo ${{ github.repository }}
-                fi
-              else
-                echo "No assets to download for release $tag"
-              fi
+          echo "Fetching releases from upstream..."
+
+          upstream_repo="observeinc/terraform-azure-collection"
+          fork_repo="${{ github.repository }}"
+
+          # Get upstream releases
+          gh api -H "Accept: application/vnd.github+json" /repos/$upstream_repo/releases | jq -c '.[]' > releases.json
+
+          while IFS= read -r release; do
+            tag_name=$(echo "$release" | jq -r .tag_name)
+            title=$(echo "$release" | jq -r .name)
+            body=$(echo "$release" | jq -r .body)
+            draft=$(echo "$release" | jq -r .draft)
+            prerelease=$(echo "$release" | jq -r .prerelease)
+
+            # Skip drafts
+            if [ "$draft" = "true" ]; then
+              echo "Skipping draft release: $tag_name"
+              continue
             fi
-          done
+
+            # Check if release already exists
+            if gh release view "$tag_name" --repo "$fork_repo" > /dev/null 2>&1; then
+              echo "Release $tag_name already exists in fork, skipping."
+            else
+              echo "Creating release $tag_name in fork..."
+              flags=""
+              if [ "$prerelease" = "true" ]; then
+                flags="--prerelease"
+              fi
+              gh release create "$tag_name" --repo "$fork_repo" --title "$title" --notes "$body" $flags
+            fi
+          done < releases.json
