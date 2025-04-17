@@ -46,9 +46,9 @@ jobs:
           git push origin --tags
 
       - name: Install GitHub CLI
-        uses: cli/gh-action@v2
+        uses: sersoft-gmbh/setup-gh-cli-action@v2
         with:
-          github-token: ${{ secrets.PAT_SYNC }}
+          version: stable
 
       - name: Sync releases
         env:
