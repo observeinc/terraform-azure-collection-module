@@ -1,28 +1,71 @@
-name: Sync Fork and Releases
+name: Sync Fork with Upstream
 
 on:
   schedule:
     - cron: '0 0 * * *' # Runs daily at midnight UTC
-  workflow_dispatch: # Allows manual trigger
+  workflow_dispatch: # Allows manual triggering
+  push:
+    branches:
+      - main # Trigger on push to main
+  pull_request:
+    branches:
+      - main # Trigger on pull requests to main
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout fork
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Fetch all history for branches and tags
+          token: ${{ secrets.PAT }} # Use PAT for authentication
 
-      - name: Sync with upstream
+      - name: Set up Git
         run: |
-          git remote add upstream https://github.com/observeinc/terraform-azure-collection.git 
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/observeinc/terraform-azure-collection.git || true
           git fetch upstream --tags
+
+      - name: Sync main branch
+        run: |
           git checkout main
-          git merge upstream/main --allow-unrelated-histories --no-commit || true
-          git checkout HEAD -- .github/workflows/
-          git commit --allow-empty -m "Sync with upstream"
+          git merge upstream/main --allow-unrelated-histories || (echo "Merge conflicts detected. Please resolve manually."; exit 1)
           git push origin main
+
+      - name: Push tags
+        run: |
           git push origin --tags
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Sync releases
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT_SYNC }}
+        run: |
+          gh auth login --with-token < $GITHUB_TOKEN
+          # List upstream releases
+          releases=$(gh release list --repo observeinc/terraform-azure-collection --limit 100 | awk '{print $1}')
+          for tag in $releases; do
+            # Check if release exists in fork
+            if ! gh release view $tag --repo ${{ github.repository }} > /dev/null 2>&1; then
+              # Download release assets
+              gh release download $tag --repo observeinc/terraform-azure-collection --dir /tmp/release-$tag
+              # Get release details
+              title=$(gh release view $tag --repo observeinc/terraform-azure-collection --json title --jq .title)
+              notes=$(gh release view $tag --repo observeinc/terraform-azure-collection --json body --jq .body)
+              # Create release in fork
+              gh release create $tag --repo ${{ github.repository }} --title "$title" --notes "$notes"
+              # Upload assets if any
+              if ls /tmp/release-$tag/* >/dev/null 2>&1; then
+                gh release upload $tag /tmp/release-$tag/* --repo ${{ github.repository }}
+              fi
+            fi
+          done
