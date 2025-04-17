@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch all history for branches and tags
-          token: ${{ secrets.PAT_SYNC }} # Use PAT for authentication
+          token: ${{ secrets.PAT_SYNC }} # Use PAT_SYNC for authentication
 
       - name: Set up Git
         run: |
@@ -50,7 +50,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_SYNC }}
         run: |
-          gh auth login --with-token < $GITHUB_TOKEN
+          echo "$GITHUB_TOKEN" | gh auth login --with-token
           # List upstream releases
           releases=$(gh release list --repo observeinc/terraform-azure-collection --limit 100 | awk '{print $1}')
           for tag in $releases; do
