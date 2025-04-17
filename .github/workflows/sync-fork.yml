@@ -54,16 +54,18 @@ jobs:
           for tag in $releases; do
             # Check if release exists in fork
             if ! gh release view $tag --repo ${{ github.repository }} > /dev/null 2>&1; then
-              # Download release assets
-              gh release download $tag --repo observeinc/terraform-azure-collection --dir /tmp/release-$tag
               # Get release details
               title=$(gh release view $tag --repo observeinc/terraform-azure-collection --json title --jq .title)
               notes=$(gh release view $tag --repo observeinc/terraform-azure-collection --json body --jq .body)
               # Create release in fork
               gh release create $tag --repo ${{ github.repository }} --title "$title" --notes "$notes"
-              # Upload assets if any
-              if ls /tmp/release-$tag/* >/dev/null 2>&1; then
-                gh release upload $tag /tmp/release-$tag/* --repo ${{ github.repository }}
+              # Attempt to download and upload assets if they exist
+              if gh release download $tag --repo observeinc/terraform-azure-collection --dir /tmp/release-$tag > /dev/null 2>&1; then
+                if ls /tmp/release-$tag/* >/dev/null 2>&1; then
+                  gh release upload $tag /tmp/release-$tag/* --repo ${{ github.repository }}
+                fi
+              else
+                echo "No assets to download for release $tag"
               fi
             fi
           done
